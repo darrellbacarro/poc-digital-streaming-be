@@ -53,6 +53,7 @@
   "dependencies": {
     "@loopback/authentication": "^9.0.4",
     "@loopback/authentication-jwt": "^0.12.4",
+    "@loopback/authorization": "^0.12.4",
     "@loopback/boot": "^5.0.4",
     "@loopback/core": "^4.0.4",
     "@loopback/repository": "^5.0.4",
@@ -61,6 +62,7 @@
     "@loopback/service-proxy": "^5.0.4",
     "bcryptjs": "^2.4.3",
     "loopback-connector-mongodb": "^5.2.3",
+    "multer": "^1.4.5-lts.1",
     "tslib": "^2.0.0"
   },
   "devDependencies": {
@@ -68,6 +70,7 @@
     "@loopback/eslint-config": "^13.0.4",
     "@loopback/testlab": "^5.0.4",
     "@types/bcryptjs": "^2.4.2",
+    "@types/multer": "^1.4.7",
     "@types/node": "^14.18.32",
     "eslint": "^8.25.0",
     "nodemon": "^2.0.20",

@@ -1,5 +1,9 @@
-import {Responder} from './utils';
+import {RequestHandler} from 'express-serve-static-core';
 
-export interface ICustomController {
-  res: Responder;
-}
+export type FileUploadHandler = RequestHandler;
+
+export type UploadedFile = {
+  filename: string;
+  filepath: string;
+  savedname: string;
+};

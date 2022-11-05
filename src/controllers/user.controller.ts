@@ -3,16 +3,14 @@ import {
   Credentials,
   MyUserService,
   TokenServiceBindings,
-  User,
-  UserRepository,
   UserServiceBindings,
 } from '@loopback/authentication-jwt';
 import {inject} from '@loopback/core';
 import {model, property, repository} from '@loopback/repository';
 import {
   get,
-  getModelSchemaRef,
   post,
+  Request,
   requestBody,
   Response,
   RestBindings,
@@ -21,8 +19,12 @@ import {
 import {SecurityBindings, securityId, UserProfile} from '@loopback/security';
 import {genSalt, hash} from 'bcryptjs';
 import _ from 'lodash';
-import {ICustomController} from '../types';
-import {Responder} from '../utils';
+import {FILE_UPLOAD_SERVICE} from '../keys';
+import {User} from '../models';
+import {UserRepository} from '../repositories';
+import {UploadService} from '../services/upload.service';
+import {tryCatch} from '../utils';
+import {BaseController} from './base.controller';
 
 @model()
 export class NewUserRequest extends User {
@@ -43,7 +45,6 @@ const CredentialsSchema: SchemaObject = {
     },
     password: {
       type: 'string',
-      minLength: 8,
     },
   },
 };
@@ -56,10 +57,10 @@ export const CredentialsRequestBody = {
   },
 };
 
-export class UserController implements ICustomController {
-  res: Responder;
-
+export class UserController extends BaseController {
   constructor(
+    @inject(FILE_UPLOAD_SERVICE)
+    private uploadService: UploadService,
     @inject(TokenServiceBindings.TOKEN_SERVICE)
     public jwtService: TokenService,
     @inject(UserServiceBindings.USER_SERVICE)
@@ -71,7 +72,7 @@ export class UserController implements ICustomController {
     @inject(RestBindings.Http.RESPONSE)
     private response: Response,
   ) {
-    this.res = new Responder(this.response);
+    super();
   }
 
   @post('/users/login', {
@@ -95,19 +96,20 @@ export class UserController implements ICustomController {
   })
   async login(
     @requestBody(CredentialsRequestBody) credentials: Credentials,
-  ): Promise<{token: string}> {
-    // ensure the user exists, and the password is correct
-    const user = await this.userService.verifyCredentials(credentials);
-    // convert a User object into a UserProfile object (reduced set of properties)
-    const userProfile = this.userService.convertToUserProfile(user);
+  ): Promise<Response> {
+    const data = await tryCatch(async () => {
+      const user = await this.userService.verifyCredentials(credentials);
+      const userProfile = this.userService.convertToUserProfile(user);
+      const token = await this.jwtService.generateToken(userProfile);
+      return {token};
+    }, 'Successfully logged in');
 
-    // create a JSON Web Token based on the user profile
-    const token = await this.jwtService.generateToken(userProfile);
-    return {token};
+    this.response.status(200).send(data);
+    return this.response;
   }
 
   @authenticate('jwt')
-  @get('/whoAmI', {
+  @get('/me', {
     responses: {
       '200': {
         description: 'Return current user',
@@ -125,7 +127,13 @@ export class UserController implements ICustomController {
     @inject(SecurityBindings.USER)
     currentUserProfile: UserProfile,
   ): Promise<Response> {
-    return this.res.success<string>(currentUserProfile[securityId]);
+    const data = await tryCatch(async () => {
+      const user = await this.repo.findById(currentUserProfile[securityId]);
+      return user;
+    }, 'Current user data retrieved.');
+
+    this.response.status(200).send(data);
+    return this.response;
   }
 
   @post('/signup', {
@@ -143,24 +151,36 @@ export class UserController implements ICustomController {
     },
   })
   async signUp(
-    @requestBody({
-      content: {
-        'application/json': {
-          schema: getModelSchemaRef(NewUserRequest, {
-            title: 'NewUser',
-          }),
-        },
-      },
-    })
-    newUserRequest: NewUserRequest,
-  ): Promise<User> {
-    const password = await hash(newUserRequest.password, await genSalt());
-    const savedUser = await this.repo.create(
-      _.omit(newUserRequest, 'password'),
-    );
+    @requestBody.file()
+    request: Request,
+  ): Promise<Response> {
+    const data = await tryCatch(async () => {
+      const data = await UserController.parseUploadBody(
+        this.uploadService.handler,
+        request,
+        this.response,
+      );
 
-    await this.repo.userCredentials(savedUser.id).create({password});
+      const newUser = new NewUserRequest(data.fields);
 
-    return savedUser;
+      if (data.files.length > 0) {
+        const photo = data.files[0];
+        newUser.photo = photo.savedname;
+      }
+
+      const password = await hash(newUser.password, await genSalt());
+      const savedUser = await this.repo.create({
+        ..._.omit(newUser, 'password'),
+        enabled: newUser.role === 'ADMIN',
+        approved: newUser.role === 'ADMIN',
+      });
+
+      await this.repo.userCredentials(savedUser.id).create({password});
+
+      return savedUser;
+    }, 'Registration successful!');
+
+    this.response.status(200).send(data);
+    return this.response;
   }
 }

@@ -1,9 +1,30 @@
+import {
+  AuthorizationComponent,
+  AuthorizationDecision,
+  AuthorizationOptions,
+  AuthorizationTags,
+} from '@loopback/authorization';
 import {ApplicationConfig, PocBackendApplication} from './application';
+import {MyAuthorizationProvider} from './authorization/authorization.provider';
 
 export * from './application';
 
 export async function main(options: ApplicationConfig = {}) {
   const app = new PocBackendApplication(options);
+
+  const opts: AuthorizationOptions = {
+    precedence: AuthorizationDecision.DENY,
+    defaultDecision: AuthorizationDecision.DENY,
+  };
+
+  const binding = app.component(AuthorizationComponent);
+  app.configure(binding.key).to(opts);
+
+  app
+    .bind('authorizationProviders.my-authorizer-provider')
+    .toProvider(MyAuthorizationProvider)
+    .tag(AuthorizationTags.AUTHORIZER);
+
   await app.boot();
   await app.start();
 
