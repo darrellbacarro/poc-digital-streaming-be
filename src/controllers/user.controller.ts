@@ -268,7 +268,7 @@ export class UserController extends BaseController {
     sort?: string,
   ): Promise<Response> {
     const data = await tryCatch(async () => {
-      const filter: Filter<User> = await UserController.buildFilters({
+      const filter: Filter<User> = UserController.buildFilters({
         q,
         page,
         limit,

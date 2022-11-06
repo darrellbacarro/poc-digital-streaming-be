@@ -61,7 +61,7 @@ export class ActorController extends BaseController {
     sort?: string,
   ): Promise<Response> {
     const data = await tryCatch(async () => {
-      const filter: Filter<Actor> = await ActorController.buildFilters({
+      const filter: Filter<Actor> = ActorController.buildFilters({
         q,
         page,
         limit,
