@@ -39,6 +39,7 @@ export class ActorController extends BaseController {
   }
 
   @authorize.skip()
+  @authenticate.skip()
   @get('/actors', {
     responses: {
       '200': {
@@ -79,6 +80,7 @@ export class ActorController extends BaseController {
   }
 
   @authorize.skip()
+  @authenticate.skip()
   @get('/actors/{id}', {
     responses: {
       '200': {
