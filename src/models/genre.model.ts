@@ -15,6 +15,9 @@ export class Genre extends Entity {
   })
   title: string;
 
+  @property({type: 'string'})
+  gradient: string;
+
   constructor(data?: Partial<Genre>) {
     super(data);
   }
