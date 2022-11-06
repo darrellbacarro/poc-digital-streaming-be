@@ -1,1 +1,1 @@
-export * from './validate-email.interceptor';
+export * from './update-actor-movie.interceptor';

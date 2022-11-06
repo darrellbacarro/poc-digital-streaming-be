@@ -1,9 +1,13 @@
 import {Entity, model, property} from '@loopback/repository';
 import {Genre} from '.';
 
-export interface ActorInfo {
+@model()
+export class ActorInfo extends Entity {
+  @property({type: 'string'})
   actorId: string;
+  @property({type: 'string'})
   name: string;
+  @property({type: 'string'})
   photo: string;
 }
 
@@ -51,6 +55,8 @@ export class Movie extends Entity {
     itemType: 'object',
   })
   actors?: ActorInfo[];
+
+  [prop: string]: any;
 
   constructor(data?: Partial<Movie>) {
     super(data);

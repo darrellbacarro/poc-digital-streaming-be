@@ -1,3 +1,4 @@
+import {Filter} from '@loopback/repository';
 import {Request, Response} from '@loopback/rest';
 import {FileUploadHandler, UploadedFile} from '../types';
 
@@ -35,5 +36,33 @@ export class BaseController {
       }
     }
     return {files, fields: request.body};
+  }
+
+  protected static buildFilters(
+    filters: {
+      q?: string;
+      page?: number;
+      limit?: number;
+      sort?: string;
+    },
+    matchFields: string[] = [],
+  ): Filter<any> {
+    const filter: Filter = {};
+    const {q, page, limit, sort} = filters;
+
+    if (q) {
+      const like = q.toLowerCase();
+      filter.where = {
+        or: matchFields.map((field: string) => ({[field]: {like}})),
+      };
+    }
+
+    if (sort) filter.order = sort.split(',');
+    if (page && limit) {
+      filter.limit = limit;
+      filter.skip = (page - 1) * limit;
+    }
+
+    return filter;
   }
 }

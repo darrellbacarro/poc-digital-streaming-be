@@ -1,11 +1,6 @@
 import {Entity, hasOne, model, property} from '@loopback/repository';
 import {UserCredential} from '.';
 
-export enum Role {
-  ADMIN = 'ADMIN',
-  USER = 'USER',
-}
-
 @model()
 export class User extends Entity {
   @property({
@@ -32,9 +27,9 @@ export class User extends Entity {
 
   @property({
     type: 'string',
-    default: Role.USER,
+    default: 'USER',
   })
-  role: Role;
+  role: string;
 
   @property({type: 'string'})
   photo: string;

@@ -161,16 +161,16 @@ export class UserController extends BaseController {
     request: Request,
   ): Promise<Response> {
     const data = await tryCatch(async () => {
-      const data = await UserController.parseUploadBody(
+      const parsed = await UserController.parseUploadBody(
         this.uploadService,
         request,
         this.response,
       );
 
-      const newUser = new NewUserRequest(data.fields);
+      const newUser = new NewUserRequest(parsed.fields);
 
-      if (data.files.length > 0) {
-        const photo = data.files[0];
+      if (parsed.files.length > 0) {
+        const photo = parsed.files[0];
         newUser.photo = photo.publicUrl;
       }
 
@@ -264,24 +264,18 @@ export class UserController extends BaseController {
     page?: number,
     @param.query.number('limit')
     limit?: number,
+    @param.query.string('sort')
+    sort?: string,
   ): Promise<Response> {
     const data = await tryCatch(async () => {
-      const filter: Filter<User> = {};
-
-      if (q) {
-        const like = q.toLowerCase();
-        filter.where = {
-          or: [{fullname: {like}}, {email: {like}}],
-        };
-      }
+      const filter: Filter<User> = await UserController.buildFilters({
+        q,
+        page,
+        limit,
+        sort,
+      });
 
       const {count: total} = await this.repo.count(filter.where);
-
-      if (page && limit) {
-        filter.limit = limit;
-        filter.skip = (page - 1) * limit;
-      }
-
       const users = await this.repo.find(filter);
       return {
         total,
