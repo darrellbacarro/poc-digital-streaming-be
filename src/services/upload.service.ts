@@ -1,48 +1,32 @@
 import {BindingScope, ContextTags, injectable, Provider} from '@loopback/core';
-import crypto from 'crypto';
-import fs from 'fs';
 import multer from 'multer';
-import path from 'path';
+import FirebaseStorage from 'multer-firebase-storage';
 import {FILE_UPLOAD_SERVICE} from '../keys';
 import {FileUploadHandler} from '../types';
-
-export interface UploadService {
-  handler: FileUploadHandler;
-  deleteFile: (path: string) => Promise<void>;
-}
+import credentials from './fb-credentials.json';
 
 @injectable({
   scope: BindingScope.TRANSIENT,
   tags: {[ContextTags.KEY]: FILE_UPLOAD_SERVICE},
 })
-export class FileUploadProvider implements Provider<UploadService> {
-  value(): UploadService {
-    const storage = multer.diskStorage({
-      destination: (_req, _file, cb) => {
-        cb(null, path.resolve(__dirname, '../../uploads'));
+export class FileUploadProvider implements Provider<FileUploadHandler> {
+  value(): FileUploadHandler {
+    const fb = FirebaseStorage({
+      bucketName: 'poc-app-3eca2.appspot.com',
+      credentials: {
+        clientEmail: credentials.client_email,
+        privateKey: credentials.private_key,
+        projectId: credentials.project_id,
       },
-      filename: (_req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + crypto.randomInt(0, 1000000000);
-        const ext = path.extname(file.originalname);
-        const filenamewithoutext = path.basename(file.originalname, ext);
-        cb(null, filenamewithoutext + '-' + uniqueSuffix + ext);
-      },
+      public: true,
+      unique: true,
     });
 
-    return {
-      handler: multer({
-        storage,
-        limits: {
-          fileSize: 8000000,
-        },
-      }).any(),
-      deleteFile: async (path: string) => {
-        try {
-          await fs.promises.unlink(path);
-        } catch (err) {
-          console.log(err);
-        }
+    return multer({
+      storage: fb,
+      limits: {
+        fileSize: 8000000,
       },
-    };
+    }).any();
   }
 }

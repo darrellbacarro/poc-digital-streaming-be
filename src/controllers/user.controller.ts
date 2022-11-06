@@ -5,10 +5,14 @@ import {
   TokenServiceBindings,
   UserServiceBindings,
 } from '@loopback/authentication-jwt';
+import {authorize} from '@loopback/authorization';
 import {inject} from '@loopback/core';
-import {model, property, repository} from '@loopback/repository';
+import {Filter, model, property, repository} from '@loopback/repository';
 import {
+  del,
   get,
+  param,
+  patch,
   post,
   Request,
   requestBody,
@@ -22,16 +26,18 @@ import _ from 'lodash';
 import {FILE_UPLOAD_SERVICE} from '../keys';
 import {User} from '../models';
 import {UserRepository} from '../repositories';
-import {UploadService} from '../services/upload.service';
+import {
+  FileUploadHandler,
+  ResponseSchema,
+  TCheckEmailFilter,
+  TCheckEmailPayload,
+} from '../types';
 import {tryCatch} from '../utils';
 import {BaseController} from './base.controller';
 
 @model()
 export class NewUserRequest extends User {
-  @property({
-    type: 'string',
-    required: true,
-  })
+  @property({type: 'string'})
   password: string;
 }
 
@@ -60,7 +66,7 @@ export const CredentialsRequestBody = {
 export class UserController extends BaseController {
   constructor(
     @inject(FILE_UPLOAD_SERVICE)
-    private uploadService: UploadService,
+    private uploadService: FileUploadHandler,
     @inject(TokenServiceBindings.TOKEN_SERVICE)
     public jwtService: TokenService,
     @inject(UserServiceBindings.USER_SERVICE)
@@ -109,7 +115,7 @@ export class UserController extends BaseController {
   }
 
   @authenticate('jwt')
-  @get('/me', {
+  @get('/users/me', {
     responses: {
       '200': {
         description: 'Return current user',
@@ -136,7 +142,7 @@ export class UserController extends BaseController {
     return this.response;
   }
 
-  @post('/signup', {
+  @post('/users/register', {
     responses: {
       '200': {
         description: 'User',
@@ -156,7 +162,7 @@ export class UserController extends BaseController {
   ): Promise<Response> {
     const data = await tryCatch(async () => {
       const data = await UserController.parseUploadBody(
-        this.uploadService.handler,
+        this.uploadService,
         request,
         this.response,
       );
@@ -165,7 +171,7 @@ export class UserController extends BaseController {
 
       if (data.files.length > 0) {
         const photo = data.files[0];
-        newUser.photo = photo.savedname;
+        newUser.photo = photo.publicUrl;
       }
 
       const password = await hash(newUser.password, await genSalt());
@@ -182,5 +188,197 @@ export class UserController extends BaseController {
 
     this.response.status(200).send(data);
     return this.response;
+  }
+
+  @authenticate('jwt')
+  @authorize({allowedRoles: ['ADMIN']})
+  @patch('/users/{id}', {
+    responses: {
+      '200': {
+        description: 'User',
+        content: {
+          'application/json': {
+            schema: {
+              'x-ts-type': User,
+            },
+          },
+        },
+      },
+    },
+  })
+  async updateUser(
+    @requestBody.file()
+    request: Request,
+    @param.path.string('id')
+    id: string,
+  ): Promise<Response> {
+    const data = await tryCatch(async () => {
+      const userFound = await this.repo.findById(id);
+      if (!userFound) throw new Error('User not found.');
+
+      const data = await UserController.parseUploadBody(
+        this.uploadService,
+        request,
+        this.response,
+      );
+
+      const userData = new NewUserRequest(data.fields);
+
+      if (data.files.length > 0) {
+        const photo = data.files[0];
+        userData.photo = photo.publicUrl;
+      }
+
+      if (userData.password) {
+        const password = await hash(userData.password, await genSalt());
+        await this.repo.userCredentials(id).patch({password});
+      }
+
+      const updatedUser = await this.repo.updateById(
+        id,
+        _.omit(userData, 'password'),
+      );
+      return updatedUser;
+    }, 'User updated successfully!');
+
+    this.response.status(200).send(data);
+    return this.response;
+  }
+
+  @authenticate('jwt')
+  @authorize({allowedRoles: ['ADMIN']})
+  @get('/users', {
+    responses: {
+      '200': {
+        description: 'List of all users',
+        content: {
+          'application/json': {schema: ResponseSchema},
+        },
+      },
+    },
+  })
+  async getAllUsers(
+    @param.query.string('q')
+    q?: string,
+    @param.query.number('page')
+    page?: number,
+    @param.query.number('limit')
+    limit?: number,
+  ): Promise<Response> {
+    const data = await tryCatch(async () => {
+      const filter: Filter<User> = {};
+
+      if (q) {
+        const like = q.toLowerCase();
+        filter.where = {
+          or: [{fullname: {like}}, {email: {like}}],
+        };
+      }
+
+      const {count: total} = await this.repo.count(filter.where);
+
+      if (page && limit) {
+        filter.limit = limit;
+        filter.skip = (page - 1) * limit;
+      }
+
+      const users = await this.repo.find(filter);
+      return {
+        total,
+        items: users,
+      };
+    }, 'Users retrieved successfully!');
+
+    this.response.status(200).send(data);
+    return this.response;
+  }
+
+  @authenticate('jwt')
+  @authorize({allowedRoles: ['ADMIN']})
+  @get('/users/{id}', {
+    responses: {
+      '200': {
+        description: 'Data of a user',
+        content: {
+          'application/json': {schema: ResponseSchema},
+        },
+      },
+    },
+  })
+  async getUserById(
+    @param.path.string('id')
+    id: string,
+  ): Promise<Response> {
+    const data = await tryCatch(async () => {
+      const user = await this.repo.findById(id);
+
+      if (!user) throw new Error('User not found.');
+      return user;
+    }, 'User retrieved successfully!');
+
+    this.response.status(200).send(data);
+    return this.response;
+  }
+
+  @authenticate('jwt')
+  @authorize({allowedRoles: ['ADMIN']})
+  @del('/users/{id}', {
+    responses: {
+      '200': {
+        description: 'User deletion status',
+        content: {
+          'application/json': {schema: ResponseSchema},
+        },
+      },
+    },
+  })
+  async deleteUserById(
+    @param.path.string('id')
+    id: string,
+  ): Promise<Response> {
+    const data = await tryCatch(async () => {
+      const user = await this.repo.findById(id);
+      if (!user) throw new Error('User not found.');
+
+      await this.repo.deleteById(id);
+      return user;
+    }, 'User deleted successfully!');
+
+    this.response.status(200).send(data);
+    return this.response;
+  }
+
+  @post('/validate-email', {
+    responses: {
+      '200': {
+        description: 'Validate Email',
+        content: {
+          'application/json': {schema: ResponseSchema},
+        },
+      },
+    },
+  })
+  async validateEmail(
+    @requestBody()
+    request: TCheckEmailPayload,
+  ): Promise<Response> {
+    const data = await tryCatch(async () => {
+      const exists = await this.checkIfEmailExists(request.email, request.id);
+      return {valid: !exists};
+    }, 'Email Validated');
+
+    this.response.status(200).send(data);
+    return this.response;
+  }
+
+  private async checkIfEmailExists(
+    email: string,
+    id?: string,
+  ): Promise<boolean> {
+    const where: TCheckEmailFilter = {email};
+    if (id) where['id'] = {neq: id};
+
+    const emailExists = await this.repo.findOne({where});
+    return !!emailExists;
   }
 }

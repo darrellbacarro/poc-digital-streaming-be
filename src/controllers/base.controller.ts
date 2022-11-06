@@ -8,7 +8,7 @@ export class BaseController {
     response: Response,
   ): Promise<{files: UploadedFile[]; fields: any}> {
     return new Promise((resolve, reject) => {
-      handler(request, response, err => {
+      handler(request, response, async err => {
         if (err) reject(err);
         else {
           resolve(BaseController.getFilesAndFields(request));
@@ -19,11 +19,12 @@ export class BaseController {
 
   protected static getFilesAndFields(request: Request) {
     const uploadedFiles = request.files;
-    const mapper = (f: globalThis.Express.Multer.File) =>
+    const mapper = (f: any) =>
       <UploadedFile>{
         filename: f.originalname,
         filepath: f.path,
-        savedname: f.filename,
+        publicUrl: f.publicUrl,
+        fieldname: f.fieldname,
       };
     let files: UploadedFile[] = [];
     if (Array.isArray(uploadedFiles)) {
