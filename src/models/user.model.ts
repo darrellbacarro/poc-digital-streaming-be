@@ -46,6 +46,9 @@ export class User extends Entity {
   })
   approved: boolean;
 
+  @property({type: 'object'})
+  favorites: {[key: string]: boolean};
+
   @hasOne(() => UserCredential)
   userCredentials: UserCredential;
 

@@ -1,12 +1,11 @@
 import {authenticate, TokenService} from '@loopback/authentication';
 import {
   Credentials,
-  MyUserService,
   TokenServiceBindings,
   UserServiceBindings,
 } from '@loopback/authentication-jwt';
 import {authorize} from '@loopback/authorization';
-import {inject} from '@loopback/core';
+import {inject, intercept} from '@loopback/core';
 import {Filter, model, property, repository} from '@loopback/repository';
 import {
   del,
@@ -23,16 +22,20 @@ import {
 import {SecurityBindings, securityId, UserProfile} from '@loopback/security';
 import {genSalt, hash} from 'bcryptjs';
 import _ from 'lodash';
+import {ObjectId} from 'mongodb';
+import {DeleteUserInterceptor} from '../interceptors';
 import {FILE_UPLOAD_SERVICE} from '../keys';
 import {User} from '../models';
-import {UserRepository} from '../repositories';
+import {MovieRepository, UserRepository} from '../repositories';
+import {CustomUserService} from '../services/user.service';
 import {
   FileUploadHandler,
   ResponseSchema,
   TCheckEmailFilter,
   TCheckEmailPayload,
+  TUpdateFavoritesPayload,
 } from '../types';
-import {tryCatch} from '../utils';
+import {rawQuery, tryCatch} from '../utils';
 import {BaseController} from './base.controller';
 
 @model()
@@ -70,11 +73,13 @@ export class UserController extends BaseController {
     @inject(TokenServiceBindings.TOKEN_SERVICE)
     public jwtService: TokenService,
     @inject(UserServiceBindings.USER_SERVICE)
-    public userService: MyUserService,
+    public userService: CustomUserService,
     @inject(SecurityBindings.USER, {optional: true})
     public user: UserProfile,
     @repository(UserRepository)
     protected repo: UserRepository,
+    @repository(MovieRepository)
+    protected movieRepo: MovieRepository,
     @inject(RestBindings.Http.RESPONSE)
     private response: Response,
   ) {
@@ -107,11 +112,10 @@ export class UserController extends BaseController {
       const user = await this.userService.verifyCredentials(credentials);
       const userProfile = this.userService.convertToUserProfile(user);
       const token = await this.jwtService.generateToken(userProfile);
-      return {token};
+      return {token, user: userProfile};
     }, 'Successfully logged in');
 
-    this.response.status(200).send(data);
-    return this.response;
+    return this.response.status(200).send(data);
   }
 
   @authenticate('jwt')
@@ -138,8 +142,7 @@ export class UserController extends BaseController {
       return user;
     }, 'Current user data retrieved.');
 
-    this.response.status(200).send(data);
-    return this.response;
+    return this.response.status(200).send(data);
   }
 
   @post('/users/register', {
@@ -175,19 +178,14 @@ export class UserController extends BaseController {
       }
 
       const password = await hash(newUser.password, await genSalt());
-      const savedUser = await this.repo.create({
-        ..._.omit(newUser, 'password'),
-        enabled: newUser.role === 'ADMIN',
-        approved: newUser.role === 'ADMIN',
-      });
+      const savedUser = await this.repo.create(_.omit(newUser, 'password'));
 
       await this.repo.userCredentials(savedUser.id).create({password});
 
       return savedUser;
     }, 'Registration successful!');
 
-    this.response.status(200).send(data);
-    return this.response;
+    return this.response.status(200).send(data);
   }
 
   @authenticate('jwt')
@@ -241,8 +239,7 @@ export class UserController extends BaseController {
       return updatedUser;
     }, 'User updated successfully!');
 
-    this.response.status(200).send(data);
-    return this.response;
+    return this.response.status(200).send(data);
   }
 
   @authenticate('jwt')
@@ -268,12 +265,15 @@ export class UserController extends BaseController {
     sort?: string,
   ): Promise<Response> {
     const data = await tryCatch(async () => {
-      const filter: Filter<User> = UserController.buildFilters({
-        q,
-        page,
-        limit,
-        sort,
-      });
+      const filter: Filter<User> = UserController.buildFilters(
+        {
+          q,
+          page,
+          limit,
+          sort,
+        },
+        ['fullname', 'email'],
+      );
 
       const {count: total} = await this.repo.count(filter.where);
       const users = await this.repo.find(filter);
@@ -283,8 +283,7 @@ export class UserController extends BaseController {
       };
     }, 'Users retrieved successfully!');
 
-    this.response.status(200).send(data);
-    return this.response;
+    return this.response.status(200).send(data);
   }
 
   @authenticate('jwt')
@@ -310,8 +309,7 @@ export class UserController extends BaseController {
       return user;
     }, 'User retrieved successfully!');
 
-    this.response.status(200).send(data);
-    return this.response;
+    return this.response.status(200).send(data);
   }
 
   @authenticate('jwt')
@@ -326,6 +324,7 @@ export class UserController extends BaseController {
       },
     },
   })
+  @intercept(DeleteUserInterceptor.BINDING_KEY)
   async deleteUserById(
     @param.path.string('id')
     id: string,
@@ -338,8 +337,7 @@ export class UserController extends BaseController {
       return user;
     }, 'User deleted successfully!');
 
-    this.response.status(200).send(data);
-    return this.response;
+    return this.response.status(200).send(data);
   }
 
   @post('/validate-email', {
@@ -361,18 +359,92 @@ export class UserController extends BaseController {
       return {valid: !exists};
     }, 'Email Validated');
 
-    this.response.status(200).send(data);
-    return this.response;
+    return this.response.status(200).send(data);
   }
 
+  @authenticate('jwt')
+  @authorize({allowedRoles: ['USER']})
+  @patch('/users/{id}/favorites', {
+    responses: {
+      '200': {
+        description: "Update user's favorite movies",
+        content: {
+          'application/json': {schema: ResponseSchema},
+        },
+      },
+    },
+  })
+  async updateFavorites(
+    @param.path.string('id')
+    id: string,
+    @requestBody()
+    request: TUpdateFavoritesPayload,
+  ): Promise<Response> {
+    const data = await tryCatch(async () => {
+      const user = await this.repo.findById(id);
+      if (!user) throw new Error('User not found.');
+      const favorites = {...(user.favorites ?? {})};
+      Object.keys(request).forEach(key => {
+        if (request[key]) favorites[key] = request[key];
+        else delete favorites[key];
+      });
+
+      await this.repo.updateById(id, {favorites});
+      const updatedUser = await this.repo.findById(id);
+      return updatedUser;
+    }, "User's favorite movies updated successfully!");
+
+    return this.response.status(200).send(data);
+  }
+
+  @authenticate('jwt')
+  @authorize({allowedRoles: ['USER']})
+  @get('/users/{id}/favorites', {
+    responses: {
+      '200': {
+        description: 'User favorite movies',
+        content: {
+          'application/json': {schema: ResponseSchema},
+        },
+      },
+    },
+  })
+  async getFavorites(
+    @param.path.string('id')
+    id: string,
+  ): Promise<Response> {
+    const data = await tryCatch(async () => {
+      const user = await this.repo.findById(id);
+      const favorites = Object.keys(user.favorites ?? {}).map(
+        (key: string) => new ObjectId(key),
+      );
+      const {items: movies} = await rawQuery(this.movieRepo, 'Movie', {
+        baseFilter: {_id: {$in: favorites}},
+      });
+      return movies;
+    }, 'User favorite movies');
+
+    return this.response.status(200).send(data);
+  }
+
+  /**
+   * Checks if an email exists in the database.
+   * @param {string} email - the email to check for
+   * @param {string} [id] - the id of the user to exclude from the check
+   * @returns {boolean} - true if the email exists, false otherwise
+   */
   private async checkIfEmailExists(
     email: string,
     id?: string,
   ): Promise<boolean> {
     const where: TCheckEmailFilter = {email};
-    if (id) where['id'] = {neq: id};
-
     const emailExists = await this.repo.findOne({where});
-    return !!emailExists;
+
+    if (emailExists) {
+      if (id && emailExists.id === id) return false;
+      return true;
+    }
+
+    return false;
   }
 }

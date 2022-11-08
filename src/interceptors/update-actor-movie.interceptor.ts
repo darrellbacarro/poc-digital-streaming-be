@@ -71,7 +71,7 @@ export class UpdateActorMovieInterceptor implements Provider<Interceptor> {
 
       return result;
     } catch (err) {
-      // Add error handling logic here
+      console.error(err);
       throw err;
     }
   }
@@ -80,6 +80,6 @@ export class UpdateActorMovieInterceptor implements Provider<Interceptor> {
     const movies = await this.movieRepo.execute('Movie', 'find', {
       'actors.actorId': id,
     });
-    return await movies.toArray();
+    return movies.toArray();
   }
 }

@@ -5,7 +5,6 @@ class UserInfo extends Entity {
   @property({
     type: 'string',
     required: true,
-    mongodb: {dataType: 'ObjectId'},
   })
   userId: string;
 
@@ -21,7 +20,6 @@ class MovieInfo extends Entity {
   @property({
     type: 'string',
     required: true,
-    mongodb: {dataType: 'ObjectId'},
   })
   movieId: string;
 
@@ -55,6 +53,9 @@ export class Review extends Entity {
 
   @property({type: 'object'})
   movie: MovieInfo;
+
+  @property({type: 'date'})
+  postedAt: Date;
 
   constructor(data?: Partial<Review>) {
     super(data);

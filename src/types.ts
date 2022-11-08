@@ -22,6 +22,10 @@ export type TCheckEmailPayload = {
   id?: string;
 };
 
+export type TUpdateFavoritesPayload = {
+  [key: string]: boolean;
+};
+
 export const ResponseSchema: SchemaObject = {
   type: 'object',
   title: 'Response',

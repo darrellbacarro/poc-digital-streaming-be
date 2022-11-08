@@ -13,13 +13,12 @@ import {
   Response,
   RestBindings,
 } from '@loopback/rest';
-import _ from 'lodash';
 import {UpdateActorMovieInterceptor} from '../interceptors';
 import {FILE_UPLOAD_SERVICE} from '../keys';
 import {Actor, Movie} from '../models';
 import {ActorRepository, MovieRepository} from '../repositories';
 import {FileUploadHandler, ResponseSchema} from '../types';
-import {tryCatch} from '../utils';
+import {rawQuery, tryCatch} from '../utils';
 import {BaseController} from './base.controller';
 
 @authorize({allowedRoles: ['ADMIN']})
@@ -61,12 +60,15 @@ export class ActorController extends BaseController {
     sort?: string,
   ): Promise<Response> {
     const data = await tryCatch(async () => {
-      const filter: Filter<Actor> = ActorController.buildFilters({
-        q,
-        page,
-        limit,
-        sort,
-      });
+      const filter: Filter<Actor> = ActorController.buildFilters(
+        {
+          q,
+          page,
+          limit,
+          sort,
+        },
+        ['firstname', 'lastname'],
+      );
 
       const {count: total} = await this.repo.count(filter.where);
       const actors = await this.repo.find(filter);
@@ -99,11 +101,12 @@ export class ActorController extends BaseController {
     const data = await tryCatch(async () => {
       const actor = await this.repo.findById(id);
       if (includeMovies) {
-        const movies = await this.getMoviesByActorId(id);
+        const {items: movies, count} = await this.getMoviesByActorId(id);
 
         return {
           ...actor,
           movies,
+          totalMovies: count,
         };
       }
       return actor;
@@ -200,7 +203,7 @@ export class ActorController extends BaseController {
       const actor = await this.repo.findById(id);
       if (!actor) throw new Error('Actor not found!');
 
-      const movies = await this.getMoviesByActorId(id);
+      const {items: movies} = await this.getMoviesByActorId(id);
       if (movies.length > 0)
         throw new Error('Actor is casted in a movie. Deletion not allowed!');
 
@@ -211,12 +214,15 @@ export class ActorController extends BaseController {
     return this.response.status(200).send(data);
   }
 
-  private async getMoviesByActorId(id: string): Promise<Movie[]> {
-    const movies = await this.repo.execute('Movie', 'find', {
-      'actors.actorId': id,
+  private async getMoviesByActorId(
+    id: string,
+  ): Promise<{count: number; items: Movie[]}> {
+    const result = await rawQuery(this.repo, 'Movie', {
+      baseFilter: {'actors.actorId': id},
+      extra: {
+        projection: {actors: 0},
+      },
     });
-    return (await movies.toArray()).map((movie: any) =>
-      _.omit(movie, 'actors'),
-    );
+    return result;
   }
 }

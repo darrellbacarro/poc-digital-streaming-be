@@ -15,9 +15,9 @@ import {
 } from '@loopback/rest';
 import {FILE_UPLOAD_SERVICE} from '../keys';
 import {Movie} from '../models';
-import {MovieRepository} from '../repositories';
+import {MovieRepository, ReviewRepository} from '../repositories';
 import {FileUploadHandler, ResponseSchema} from '../types';
-import {tryCatch} from '../utils';
+import {rawQuery, tryCatch} from '../utils';
 import {BaseController} from './base.controller';
 
 @authenticate('jwt')
@@ -30,6 +30,8 @@ export class MovieController extends BaseController {
     private response: Response,
     @repository(MovieRepository)
     public repo: MovieRepository,
+    @repository(ReviewRepository)
+    public reviewRepo: ReviewRepository,
   ) {
     super();
   }
@@ -59,6 +61,10 @@ export class MovieController extends BaseController {
 
       if (typeof movieData.genres === 'string') {
         movieData.genres = JSON.parse(movieData.genres);
+      }
+
+      if (typeof movieData.actors === 'string') {
+        movieData.actors = JSON.parse(movieData.actors);
       }
 
       for (const file of parsed.files) {
@@ -100,6 +106,10 @@ export class MovieController extends BaseController {
         movieData.genres = JSON.parse(movieData.genres);
       }
 
+      if (movieData.actors && typeof movieData.actors === 'string') {
+        movieData.actors = JSON.parse(movieData.actors);
+      }
+
       for (const file of parsed.files) {
         movieData[file.fieldname] = file.publicUrl;
       }
@@ -136,17 +146,19 @@ export class MovieController extends BaseController {
     sort?: string,
   ): Promise<Response> {
     const data = await tryCatch(async () => {
-      const filter: Filter<Movie> = MovieController.buildFilters({
-        q,
-        page,
-        limit,
-        sort,
-      });
+      const filter: Filter<Movie> = MovieController.buildFilters(
+        {
+          q,
+          page,
+          limit,
+          sort,
+        },
+        ['title'],
+      );
 
       const {count: total} = await this.repo.count(filter.where);
       const movies = await this.repo.find({
         ...filter,
-        fields: {actors: false},
       });
       return {
         total,
@@ -204,6 +216,52 @@ export class MovieController extends BaseController {
       await this.repo.deleteById(id);
       return movie;
     }, 'Movie deleted successfully!');
+
+    return this.response.status(200).send(data);
+  }
+
+  @authenticate.skip()
+  @authorize.skip()
+  @get('/movies/{id}/reviews', {
+    responses: {
+      '200': {
+        description: 'Movie Reviews',
+        content: {
+          'application/json': {schema: ResponseSchema},
+        },
+      },
+    },
+  })
+  async getMovieReviews(
+    @param.path.string('id')
+    id: string,
+    @param.query.string('q')
+    q?: string,
+    @param.query.number('page')
+    page?: number,
+    @param.query.number('limit')
+    limit?: number,
+    @param.query.string('sort')
+    sort?: string,
+  ): Promise<Response> {
+    const data = await tryCatch(async () => {
+      const {count, items} = await rawQuery(this.reviewRepo, 'Review', {
+        q,
+        page,
+        limit,
+        sort,
+        baseFilter: {'movie.movieId': id, approved: true},
+        extra: {
+          projection: {
+            movie: 0,
+          },
+        },
+      });
+      return {
+        total: count,
+        items,
+      };
+    }, 'Reviews retrieved successfully!');
 
     return this.response.status(200).send(data);
   }

@@ -12,21 +12,17 @@ import {
   Response,
   RestBindings,
 } from '@loopback/rest';
-import _ from 'lodash';
 import {UpdateGenreMovieInterceptor} from '../interceptors/update-genre-movie.interceptor';
-import {FILE_UPLOAD_SERVICE} from '../keys';
 import {Genre, Movie} from '../models';
 import {GenreRepository} from '../repositories';
-import {FileUploadHandler, ResponseSchema} from '../types';
-import {tryCatch} from '../utils';
+import {ResponseSchema} from '../types';
+import {rawQuery, tryCatch} from '../utils';
 import {BaseController} from './base.controller';
 
 @authenticate('jwt')
 @authorize({allowedRoles: ['ADMIN']})
 export class GenreController extends BaseController {
   constructor(
-    @inject(FILE_UPLOAD_SERVICE)
-    private uploadService: FileUploadHandler,
     @inject(RestBindings.Http.RESPONSE)
     private response: Response,
     @repository(GenreRepository)
@@ -60,7 +56,7 @@ export class GenreController extends BaseController {
   @patch('/genres/{id}', {
     responses: {
       '200': {
-        description: 'Updated Movie Data',
+        description: 'Updated Genre Data',
         content: {
           'application/json': {schema: ResponseSchema},
         },
@@ -71,7 +67,7 @@ export class GenreController extends BaseController {
     @param.path.string('id')
     id: string,
     @requestBody()
-    genre: Genre,
+    genre: Partial<Genre>,
   ): Promise<Response> {
     const data = await tryCatch(async () => {
       const updatedGenre = await this.repo.updateById(id, genre);
@@ -104,12 +100,15 @@ export class GenreController extends BaseController {
     sort?: string,
   ): Promise<Response> {
     const data = await tryCatch(async () => {
-      const filter: Filter<Genre> = GenreController.buildFilters({
-        q,
-        page,
-        limit,
-        sort,
-      });
+      const filter: Filter<Genre> = GenreController.buildFilters(
+        {
+          q,
+          page,
+          limit,
+          sort,
+        },
+        ['title'],
+      );
 
       const {count: total} = await this.repo.count(filter.where);
       const genres = await this.repo.find(filter);
@@ -145,7 +144,7 @@ export class GenreController extends BaseController {
       if (!genre) throw new Error('Genre not found!');
 
       if (includeMovies) {
-        const movies = await this.getMoviesByGenreId(id);
+        const {items: movies} = await this.getMoviesByGenreId(id);
 
         return {
           ...genre,
@@ -177,7 +176,7 @@ export class GenreController extends BaseController {
       const genre = await this.repo.findById(id);
       if (!genre) throw new Error('Genre not found!');
 
-      const movies = await this.getMoviesByGenreId(id);
+      const {items: movies} = await this.getMoviesByGenreId(id);
       if (movies.length > 0)
         throw new Error('Some movies are associated. Deletion not allowed!');
 
@@ -188,12 +187,16 @@ export class GenreController extends BaseController {
     return this.response.status(200).send(data);
   }
 
-  private async getMoviesByGenreId(id: string): Promise<Movie[]> {
-    const movies = await this.repo.execute('Movie', 'find', {
-      'genres.id': id,
+  private async getMoviesByGenreId(
+    id: string,
+  ): Promise<{count: number; items: Movie[]}> {
+    const result = await rawQuery(this.repo, 'Movie', {
+      baseFilter: {'genres.id': id},
+      extra: {
+        projection: {actors: 0},
+      },
     });
-    return (await movies.toArray()).map((movie: any) =>
-      _.omit(movie, 'actors'),
-    );
+
+    return result;
   }
 }

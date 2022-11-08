@@ -24,9 +24,6 @@ export class CustomUserService implements UserService<MyUser, Credentials> {
     });
 
     if (!foundUser) throw new Error(invalidCredentialsError);
-    if (!foundUser.approved)
-      throw new Error('User activation is still pending.');
-    if (!foundUser.enabled) throw new Error('User is disabled.');
 
     const credentialsFound = await this.userRepository.findCredentials(
       foundUser.id,
@@ -41,6 +38,9 @@ export class CustomUserService implements UserService<MyUser, Credentials> {
 
     if (!passwordMatched) throw new Error(invalidCredentialsError);
 
+    if (!foundUser.approved)
+      throw new Error('User activation is still pending.');
+
     return foundUser;
   }
 
@@ -53,6 +53,8 @@ export class CustomUserService implements UserService<MyUser, Credentials> {
       role: user.role,
       approved: user.approved,
       enabled: user.enabled,
+      photo: user.photo,
+      favorites: user.favorites,
     };
   }
 }

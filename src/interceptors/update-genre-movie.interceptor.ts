@@ -66,7 +66,7 @@ export class UpdateGenreMovieInterceptor implements Provider<Interceptor> {
 
       return result;
     } catch (err) {
-      // Add error handling logic here
+      console.error(err);
       throw err;
     }
   }

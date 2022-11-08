@@ -51,9 +51,10 @@ export class BaseController {
     const {q, page, limit, sort} = filters;
 
     if (q) {
-      const like = q.toLowerCase();
       filter.where = {
-        or: matchFields.map((field: string) => ({[field]: {like}})),
+        or: matchFields.map((field: string) => ({
+          [field]: {like: q, options: 'i'},
+        })),
       };
     }
 
