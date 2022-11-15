@@ -57,6 +57,9 @@ export class MovieController extends BaseController {
         this.response,
       );
 
+      if (!parsed.files.length)
+        throw new Error('No poster and/or backdrop image provided!');
+
       const movieData = new Movie(parsed.fields);
 
       if (typeof movieData.genres === 'string') {

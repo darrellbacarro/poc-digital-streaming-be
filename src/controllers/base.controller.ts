@@ -3,7 +3,7 @@ import {Request, Response} from '@loopback/rest';
 import {FileUploadHandler, UploadedFile} from '../types';
 
 export class BaseController {
-  protected static parseUploadBody(
+  public static parseUploadBody(
     handler: FileUploadHandler,
     request: Request,
     response: Response,
@@ -18,13 +18,13 @@ export class BaseController {
     });
   }
 
-  protected static getFilesAndFields(request: Request) {
+  public static getFilesAndFields(request: Request) {
     const uploadedFiles = request.files;
     const mapper = (f: any) =>
       <UploadedFile>{
         filename: f.originalname,
         filepath: f.path,
-        publicUrl: f.publicUrl,
+        publicUrl: f.publicUrl ?? f.filepath,
         fieldname: f.fieldname,
       };
     let files: UploadedFile[] = [];
@@ -38,7 +38,7 @@ export class BaseController {
     return {files, fields: request.body};
   }
 
-  protected static buildFilters(
+  public static buildFilters(
     filters: {
       q?: string;
       page?: number;

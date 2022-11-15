@@ -23,10 +23,17 @@ import {SecurityBindings, securityId, UserProfile} from '@loopback/security';
 import {genSalt, hash} from 'bcryptjs';
 import _ from 'lodash';
 import {ObjectId} from 'mongodb';
-import {DeleteUserInterceptor} from '../interceptors';
+import {
+  DeleteUserInterceptor,
+  UpdateUserReviewInterceptor,
+} from '../interceptors';
 import {FILE_UPLOAD_SERVICE} from '../keys';
 import {User} from '../models';
-import {MovieRepository, UserRepository} from '../repositories';
+import {
+  MovieRepository,
+  UserCredentialRepository,
+  UserRepository,
+} from '../repositories';
 import {CustomUserService} from '../services/user.service';
 import {
   FileUploadHandler,
@@ -35,7 +42,7 @@ import {
   TCheckEmailPayload,
   TUpdateFavoritesPayload,
 } from '../types';
-import {rawQuery, tryCatch} from '../utils';
+import {rawQuery, TResponse, tryCatch} from '../utils';
 import {BaseController} from './base.controller';
 
 @model()
@@ -74,14 +81,12 @@ export class UserController extends BaseController {
     public jwtService: TokenService,
     @inject(UserServiceBindings.USER_SERVICE)
     public userService: CustomUserService,
-    @inject(SecurityBindings.USER, {optional: true})
-    public user: UserProfile,
     @repository(UserRepository)
     protected repo: UserRepository,
     @repository(MovieRepository)
     protected movieRepo: MovieRepository,
-    @inject(RestBindings.Http.RESPONSE)
-    private response: Response,
+    @repository(UserCredentialRepository)
+    protected userCredentialRepo: UserCredentialRepository,
   ) {
     super();
   }
@@ -107,15 +112,13 @@ export class UserController extends BaseController {
   })
   async login(
     @requestBody(CredentialsRequestBody) credentials: Credentials,
-  ): Promise<Response> {
-    const data = await tryCatch(async () => {
+  ): Promise<TResponse> {
+    return tryCatch(async () => {
       const user = await this.userService.verifyCredentials(credentials);
       const userProfile = this.userService.convertToUserProfile(user);
       const token = await this.jwtService.generateToken(userProfile);
       return {token, user: userProfile};
     }, 'Successfully logged in');
-
-    return this.response.status(200).send(data);
   }
 
   @authenticate('jwt')
@@ -136,13 +139,11 @@ export class UserController extends BaseController {
   async whoAmI(
     @inject(SecurityBindings.USER)
     currentUserProfile: UserProfile,
-  ): Promise<Response> {
-    const data = await tryCatch(async () => {
+  ): Promise<TResponse> {
+    return tryCatch(async () => {
       const user = await this.repo.findById(currentUserProfile[securityId]);
       return user;
     }, 'Current user data retrieved.');
-
-    return this.response.status(200).send(data);
   }
 
   @post('/users/register', {
@@ -162,12 +163,14 @@ export class UserController extends BaseController {
   async signUp(
     @requestBody.file()
     request: Request,
-  ): Promise<Response> {
-    const data = await tryCatch(async () => {
+    @inject(RestBindings.Http.RESPONSE)
+    response: Response,
+  ): Promise<TResponse> {
+    return tryCatch(async () => {
       const parsed = await UserController.parseUploadBody(
         this.uploadService,
         request,
-        this.response,
+        response,
       );
 
       const newUser = new NewUserRequest(parsed.fields);
@@ -180,14 +183,16 @@ export class UserController extends BaseController {
       const password = await hash(newUser.password, await genSalt());
       const savedUser = await this.repo.create(_.omit(newUser, 'password'));
 
-      await this.repo.userCredentials(savedUser.id).create({password});
+      await this.userCredentialRepo.create({
+        userId: savedUser.id,
+        password,
+      });
 
       return savedUser;
     }, 'Registration successful!');
-
-    return this.response.status(200).send(data);
   }
 
+  @intercept(UpdateUserReviewInterceptor.BINDING_KEY)
   @authenticate('jwt')
   @authorize({allowedRoles: ['ADMIN']})
   @patch('/users/{id}', {
@@ -209,15 +214,17 @@ export class UserController extends BaseController {
     request: Request,
     @param.path.string('id')
     id: string,
-  ): Promise<Response> {
-    const data = await tryCatch(async () => {
+    @inject(RestBindings.Http.RESPONSE)
+    response: Response,
+  ): Promise<TResponse> {
+    return tryCatch(async () => {
       const userFound = await this.repo.findById(id);
       if (!userFound) throw new Error('User not found.');
 
       const data = await UserController.parseUploadBody(
         this.uploadService,
         request,
-        this.response,
+        response,
       );
 
       const userData = new NewUserRequest(data.fields);
@@ -229,7 +236,7 @@ export class UserController extends BaseController {
 
       if (userData.password) {
         const password = await hash(userData.password, await genSalt());
-        await this.repo.userCredentials(id).patch({password});
+        await this.userCredentialRepo.updateAll({password}, {userId: id});
       }
 
       const updatedUser = await this.repo.updateById(
@@ -238,8 +245,6 @@ export class UserController extends BaseController {
       );
       return updatedUser;
     }, 'User updated successfully!');
-
-    return this.response.status(200).send(data);
   }
 
   @authenticate('jwt')
@@ -263,8 +268,8 @@ export class UserController extends BaseController {
     limit?: number,
     @param.query.string('sort')
     sort?: string,
-  ): Promise<Response> {
-    const data = await tryCatch(async () => {
+  ): Promise<TResponse> {
+    return tryCatch(async () => {
       const filter: Filter<User> = UserController.buildFilters(
         {
           q,
@@ -282,8 +287,6 @@ export class UserController extends BaseController {
         items: users,
       };
     }, 'Users retrieved successfully!');
-
-    return this.response.status(200).send(data);
   }
 
   @authenticate('jwt')
@@ -301,15 +304,11 @@ export class UserController extends BaseController {
   async getUserById(
     @param.path.string('id')
     id: string,
-  ): Promise<Response> {
-    const data = await tryCatch(async () => {
-      const user = await this.repo.findById(id);
-
-      if (!user) throw new Error('User not found.');
-      return user;
-    }, 'User retrieved successfully!');
-
-    return this.response.status(200).send(data);
+  ): Promise<TResponse> {
+    return tryCatch(
+      async () => this.repo.findById(id),
+      'User retrieved successfully!',
+    );
   }
 
   @authenticate('jwt')
@@ -328,16 +327,13 @@ export class UserController extends BaseController {
   async deleteUserById(
     @param.path.string('id')
     id: string,
-  ): Promise<Response> {
-    const data = await tryCatch(async () => {
+  ): Promise<TResponse> {
+    return tryCatch(async () => {
       const user = await this.repo.findById(id);
-      if (!user) throw new Error('User not found.');
-
       await this.repo.deleteById(id);
+
       return user;
     }, 'User deleted successfully!');
-
-    return this.response.status(200).send(data);
   }
 
   @post('/validate-email', {
@@ -353,13 +349,11 @@ export class UserController extends BaseController {
   async validateEmail(
     @requestBody()
     request: TCheckEmailPayload,
-  ): Promise<Response> {
-    const data = await tryCatch(async () => {
+  ): Promise<TResponse> {
+    return tryCatch(async () => {
       const exists = await this.checkIfEmailExists(request.email, request.id);
       return {valid: !exists};
     }, 'Email Validated');
-
-    return this.response.status(200).send(data);
   }
 
   @authenticate('jwt')
@@ -379,8 +373,8 @@ export class UserController extends BaseController {
     id: string,
     @requestBody()
     request: TUpdateFavoritesPayload,
-  ): Promise<Response> {
-    const data = await tryCatch(async () => {
+  ): Promise<TResponse> {
+    return tryCatch(async () => {
       const user = await this.repo.findById(id);
       if (!user) throw new Error('User not found.');
       const favorites = {...(user.favorites ?? {})};
@@ -393,8 +387,6 @@ export class UserController extends BaseController {
       const updatedUser = await this.repo.findById(id);
       return updatedUser;
     }, "User's favorite movies updated successfully!");
-
-    return this.response.status(200).send(data);
   }
 
   @authenticate('jwt')
@@ -412,8 +404,8 @@ export class UserController extends BaseController {
   async getFavorites(
     @param.path.string('id')
     id: string,
-  ): Promise<Response> {
-    const data = await tryCatch(async () => {
+  ): Promise<TResponse> {
+    return tryCatch(async () => {
       const user = await this.repo.findById(id);
       const favorites = Object.keys(user.favorites ?? {}).map(
         (key: string) => new ObjectId(key),
@@ -423,8 +415,6 @@ export class UserController extends BaseController {
       });
       return movies;
     }, 'User favorite movies');
-
-    return this.response.status(200).send(data);
   }
 
   /**
@@ -433,7 +423,7 @@ export class UserController extends BaseController {
    * @param {string} [id] - the id of the user to exclude from the check
    * @returns {boolean} - true if the email exists, false otherwise
    */
-  private async checkIfEmailExists(
+  public async checkIfEmailExists(
     email: string,
     id?: string,
   ): Promise<boolean> {

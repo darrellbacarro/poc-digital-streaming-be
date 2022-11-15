@@ -26,7 +26,10 @@
         "${workspaceRoot}/dist/__tests__/**/*.js",
         "-t",
         "0"
-      ]
+      ],
+      "env": {
+        "NODE_ENV": "test"
+      }
     },
     {
       "type": "node",

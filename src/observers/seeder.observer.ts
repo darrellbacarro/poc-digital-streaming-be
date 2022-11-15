@@ -42,6 +42,10 @@ export class SeederObserver implements LifeCycleObserver {
    * This method will be invoked when the application starts.
    */
   async start(): Promise<void> {
+    if (process.env.NODE_ENV === 'test') {
+      return;
+    }
+
     const users = await this.userRepository.find();
 
     if (users.length === 0) {
@@ -54,7 +58,7 @@ export class SeederObserver implements LifeCycleObserver {
           .userCredentials(savedUser.id)
           .create({password});
       }
-      console.log('Users seeded');
+      console.info('Users seeded');
     }
   }
 
@@ -71,11 +75,19 @@ export class SeederObserver implements LifeCycleObserver {
         fullname: 'Administrator',
         email: 'admin@email.com',
         role: 'ADMIN',
+        approved: true,
       }),
       new User({
         fullname: 'User',
         email: 'user@email.com',
         role: 'USER',
+        approved: true,
+      }),
+      new User({
+        fullname: 'User',
+        email: 'user@email.com',
+        role: 'USER',
+        approved: true,
       }),
     ];
   }

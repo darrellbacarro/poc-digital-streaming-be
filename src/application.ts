@@ -3,6 +3,12 @@ import {
   JWTAuthenticationComponent,
   UserServiceBindings,
 } from '@loopback/authentication-jwt';
+import {
+  AuthorizationComponent,
+  AuthorizationDecision,
+  AuthorizationOptions,
+  AuthorizationTags,
+} from '@loopback/authorization';
 import {BootMixin} from '@loopback/boot';
 import {ApplicationConfig} from '@loopback/core';
 import {RepositoryMixin} from '@loopback/repository';
@@ -13,6 +19,7 @@ import {
 } from '@loopback/rest-explorer';
 import {ServiceMixin} from '@loopback/service-proxy';
 import path from 'path';
+import {MyAuthorizationProvider} from './authorization/authorization.provider';
 import {MongodbDataSource} from './datasources';
 import {UserCredentialRepository, UserRepository} from './repositories';
 import {MySequence} from './sequence';
@@ -41,6 +48,18 @@ export class PocBackendApplication extends BootMixin(
     this.component(AuthenticationComponent);
     this.component(JWTAuthenticationComponent);
     this.dataSource(MongodbDataSource, UserServiceBindings.DATASOURCE_NAME);
+
+    const opts: AuthorizationOptions = {
+      precedence: AuthorizationDecision.DENY,
+      defaultDecision: AuthorizationDecision.DENY,
+    };
+
+    const binding = this.component(AuthorizationComponent);
+    this.configure(binding.key).to(opts);
+
+    this.bind('authorizationProviders.my-authorizer-provider')
+      .toProvider(MyAuthorizationProvider)
+      .tag(AuthorizationTags.AUTHORIZER);
 
     this.bind(UserServiceBindings.USER_SERVICE).toClass(CustomUserService);
     this.bind(UserServiceBindings.USER_REPOSITORY).toClass(UserRepository);
