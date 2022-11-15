@@ -1,7 +1,7 @@
 import {Entity, model, property} from '@loopback/repository';
 
 @model()
-class UserInfo extends Entity {
+export class UserInfo extends Entity {
   @property({
     type: 'string',
     required: true,
@@ -16,7 +16,7 @@ class UserInfo extends Entity {
 }
 
 @model()
-class MovieInfo extends Entity {
+export class MovieInfo extends Entity {
   @property({
     type: 'string',
     required: true,
@@ -56,6 +56,8 @@ export class Review extends Entity {
 
   @property({type: 'date'})
   postedAt: Date;
+
+  [prop: string]: any;
 
   constructor(data?: Partial<Review>) {
     super(data);

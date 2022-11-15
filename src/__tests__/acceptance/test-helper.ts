@@ -1,9 +1,11 @@
-import {PocBackendApplication} from '../..';
+require('dotenv').config();
 import {
+  Client,
   createRestAppClient,
   givenHttpServerConfig,
-  Client,
 } from '@loopback/testlab';
+import {PocBackendApplication} from '../..';
+import {mongodb} from '../fixtures/datasources/mongodb.datasource';
 
 export async function setupApplication(): Promise<AppWithClient> {
   const restConfig = givenHttpServerConfig({
@@ -19,6 +21,9 @@ export async function setupApplication(): Promise<AppWithClient> {
   });
 
   await app.boot();
+
+  app.dataSource(mongodb);
+
   await app.start();
 
   const client = createRestAppClient(app);

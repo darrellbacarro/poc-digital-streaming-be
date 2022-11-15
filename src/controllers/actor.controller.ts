@@ -136,6 +136,8 @@ export class ActorController extends BaseController {
         this.response,
       );
 
+      if (!parsed.files.length) throw new Error('Photo is required!');
+
       const actorData = new Actor(parsed.fields);
 
       if (parsed.files.length > 0) {

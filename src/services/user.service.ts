@@ -1,9 +1,9 @@
-import {UserService} from '@loopback/authentication';
-import {repository} from '@loopback/repository';
-import {securityId, UserProfile} from '@loopback/security';
-import {compare} from 'bcryptjs';
-import {User as MyUser} from '../models';
-import {UserRepository as MyUserRepo} from '../repositories';
+import { UserService } from '@loopback/authentication';
+import { repository } from '@loopback/repository';
+import { securityId, UserProfile } from '@loopback/security';
+import { compare } from 'bcryptjs';
+import { User as MyUser } from '../models';
+import { UserRepository as MyUserRepo } from '../repositories';
 
 export type Credentials = {
   email: string;
